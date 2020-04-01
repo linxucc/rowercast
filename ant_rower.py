@@ -4,7 +4,7 @@ import threading
 from ant.easy.node import Node
 from ant.easy.channel import Channel
 
-from rowercast.rower import Rower
+from rower import Rower
 
 
 class BaseDataPage:
