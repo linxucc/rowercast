@@ -14,32 +14,52 @@ from rower import Rower
 # from ant_rower import AntRower
 from serial_reader import SerialReader
 
-SERIAL_ADDRESS = '/dev/tty.usbserial-AH05EI1N'
+import unittest
+
+class SerialTest(unittest.TestCase):
+
+    def setUp(self):
+        # for test of the methods, use empty fake.
+        self.sr = SerialReader(Rower(),'')
+
+    def tearDown(self):
+        self.sr = None
+
+    def test_parse(self):
+        pass
+        # non 31 length data should return None.
+        # zero case
+
+        #
 
 
-def main():
-    print('serial test, start.')
-    # shared data object of a rower.
-    my_rower = Rower()
-    # serial data reader.
-    serial_reader = SerialReader(my_rower, SERIAL_ADDRESS)
-    # Ant+ FE rower broadcaster.
-    # ant_broadcaster = AntRower(my_rower)
 
-    # start reading, start broadcasting.
-    try:
-        # ant_broadcaster.start()
-        serial_reader.start()
-    # except:
-    #     # todo: how to deal with the exception?
-    #     pass
-    finally:
-        # todo: close the program, release the hardware.
-        serial_reader.close()
-        # ant_broadcaster.close()
-
-    print('serial test, exit.')
-
-
-if __name__ == "__main__":
-    main()
+# SERIAL_ADDRESS = '/dev/tty.usbserial-AH05EI1N'
+#
+#
+# def main():
+#     print('serial test, start.')
+#     # shared data object of a rower.
+#     my_rower = Rower()
+#     # serial data reader.
+#     serial_reader = SerialReader(my_rower, SERIAL_ADDRESS)
+#     # Ant+ FE rower broadcaster.
+#     # ant_broadcaster = AntRower(my_rower)
+#
+#     # start reading, start broadcasting.
+#     try:
+#         # ant_broadcaster.start()
+#         serial_reader.start()
+#     # except:
+#     #     # todo: how to deal with the exception?
+#     #     pass
+#     finally:
+#         # todo: close the program, release the hardware.
+#         serial_reader.close()
+#         # ant_broadcaster.close()
+#
+#     print('serial test, exit.')
+#
+#
+# if __name__ == "__main__":
+#     main()

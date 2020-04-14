@@ -1,83 +1,139 @@
-class Frame:
-    """Actual Rower data of a moment, for read-consistency
+class IncomingRowerDictInvalidKeyError(Exception):
+    pass
 
-    While updating the Rower object, a potential read may lead to read in-consistency, which means reader may get
-    part of the new data and part of the old data.
 
-    for example:
+class IncomingRowerDictMissingKeyError(Exception):
+    pass
 
-        while a read has already read total time, now he is reading distance traveled, an serial update just come
-        up, which updates all the data to a newer version, in this case, the returned value of read() is a
-        combination of old total time and new distance + instant speed.
 
-        when this message got broadcast, the receiver end may get confused, some calculation may went wrong,
-        especially in cases calculations are based on event count, or some fields could roll-over.
+class IncomingRowerDictInvalidValueError(Exception):
+    pass
 
-    To prevent this situation from happening, we have to make it read-consistent.
-    For simplicity, we use a create & swap mechanism, upon each update, a new frame got created,
-    when everything has been already written, a change to the current_frame happens.
 
-    So whenever a read() happens, the reader always get a complete data with full integrity, so no part-new-part-old
-    situations could happen.
-
-    ** Why use this instead of directly hook up a dict? in case caller doesn't provide correct dict.
-    This Frame class makes the output dict clean and reliable.
-
-    """
-
-    def __init__(self, incoming_data: dict):
-        # try to parse data from incoming dict, if there's no corresponding key, it's a -1 invalid..
-        # in seconds
-        self.total_elapsed_time = incoming_data.get('total_elapsed_time', -1)
-        # in meter
-        self.total_distance_traveled = incoming_data.get('total_distance_traveled', -1)
-        # in meters/second
-        self.instantaneous_speed = incoming_data.get('instantaneous_speed', -1)
-
-    def print_current_info(self):
-        print("total time: " + str(self.total_elapsed_time)
-              + " distance: " + str(self.total_distance_traveled)
-              + " instant speed: " + str(self.instantaneous_speed))
-
-    def to_dict(self):
-        return vars(self)
+class IncomingRowerDictDuplicateError(Exception):
+    pass
 
 
 class Rower:
     """A Data Model representing a generic rower.
 
     Containing all the data fields that a rower is supposed to have.
-    A temporary place to hold current rower state in the runtime.
+    Provide a unified interface for different rower data source and data consumers.
 
-    Data updated by serialReaders, consumed by signal senders (ant+, BLE, web).
+    In this case, data source is the serialReader class, consumer is the signal senders/readers (ant+, BLE, web).
 
-    on_update_data(dict) is called by data providers to update data.
-    get_current_frame() ==> dict, is called when data consumers want to pullout current data.
+    All the rower data is stored in a dict, upon each update, a new dict will be created and replace the old one,
+    so for the data reader/consumers, the read-consistency is assured, all the fields will match.
 
     """
 
     def __init__(self):
-        # current frame is what "current" data of rower.
+        # fields definitions, keys that are not recognized will be rejected.
+        self.all_valid_keys = [
+            'total_elapsed_time',   # total time
+            'total_distance_traveled',  # total distance
+            'instantaneous_speed',  # current speed
+            'strokes_per_minute',   # spm
+            'instantaneous_power',  # power
+            'calories_burn_rate',   # kCal/hr
+            'resistance_level'      # resistance, x%
+        ]
+
+        # required fields.
+        self.mandatory_keys = [
+            'total_elapsed_time',
+            'total_distance_traveled',
+            'instantaneous_speed'
+        ]
+
+        # keys that should have integer value.
+        self.integer_keys = [
+            'total_elapsed_time',
+            'total_distance_traveled',
+            'strokes_per_minute',
+            'instantaneous_power'
+        ]
+
+        # for now, no negative keys.
+        self.negative_keys = []
+        # not implemented, some keys should only add 0 or positive value, like distance.
+        self.incremental_keys = []
+
+        # set initial data frame. current frame is what "current" data of rower.
         init_data = {
             'total_elapsed_time': 0,
             'total_distance_traveled': 0,
-            'instantaneous_speed': 0
+            'instantaneous_speed': 0,
+            'strokes_per_minute': 0,
+            'instantaneous_power': 0,
+            'calories_burn_rate': 0,
+            'resistance_level': 0
         }
-        self._current_frame = Frame(init_data)
+        # Current frame is a dict that stores current rower's data.
+        # Upon each update, the old frame should be replaced by the new frame, not modified, for read-consistency.
+        self._current_frame = init_data
+        assert isinstance(self._current_frame, dict)
 
-    def on_update_data(self, incoming_data: dict):
+    def on_update_data(self, new_frame: dict):
         # write a new Frame of new data
-        new_frame = Frame(incoming_data)
         # change current frame to this new frame, last frame is now discarded, and should be garbage collected.
         # this action is much more 'atomic', so read consistency is conserved.
+        if new_frame is self._current_frame:
+            raise IncomingRowerDictDuplicateError("Incoming frame is the same dict object, each time you have to "
+                                                  "pass a new dict object to have the read-consistency.")
+        # Invalid data frame should be rejected, and notify the caller.
+        self._check_dict_validity(new_frame)
         self._current_frame = new_frame
-        print(self._current_frame.to_dict())
 
     def get_current_frame(self) -> dict:
         # return current frame
         # even if where current frame points changes, reader still get reference to previous frame, consistency ensured.
-        return self._current_frame.to_dict()
+        return self._current_frame
 
     def print_current_frame(self):
-        assert isinstance(self._current_frame, Frame)
-        self._current_frame.print_current_info()
+        print(self._current_frame)
+
+    def _check_dict_validity(self, incoming_dict: dict):
+        """Make sure the incoming dict is a valid rower data frame, so the out coming data is consistent.
+
+            Check the validity of the incoming dict fields, make sure all the required fields exists, and the value
+            of each key is in the corresponded data type or format. So the data consumers is guaranteed that the
+            out coming data is in a known format.
+
+            Raises: IncomingRowerDictInvalidError, indicates that the incoming dict did not pass the validity check.
+
+        """
+        # check key error
+        # check value error
+
+        for key in incoming_dict.keys():
+            # check invalid key.
+            if key not in self.all_valid_keys:
+                raise IncomingRowerDictInvalidKeyError("Incoming rower data dict has unknown key, data rejected. "
+                                                       + key)
+
+            # check value if key is valid.
+            value = incoming_dict.get(key, None)
+            if value is None:
+                if key in self.mandatory_keys:
+                    # Mandatory keys should have value.
+                    raise IncomingRowerDictInvalidKeyError("Incoming rower data dict has wrong key, data rejected. "
+                                                           + key)
+            else:
+                # Got the value, check the value.
+                if key in self.integer_keys:
+                    # integer keys should be integer
+                    if int(value) != value:
+                        raise IncomingRowerDictInvalidValueError("Incoming rower data dict has wrong key, "
+                                                                 "data rejected. " + key + ":" + str(value))
+                if key not in self.negative_keys:
+                    # non-negative keys should be non-negative
+                    if value < 0:
+                        raise IncomingRowerDictInvalidValueError("Incoming rower data dict has wrong key, "
+                                                                 "data rejected. " + key + ":" + str(value))
+
+        # make sure mandatory keys exists.
+        for m_key in self.mandatory_keys:
+            if m_key not in incoming_dict.keys():
+                raise IncomingRowerDictMissingKeyError('Incoming rower data dict has insufficient keys, '
+                                                       'mandatory keys not found. '+m_key)

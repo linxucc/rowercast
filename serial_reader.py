@@ -53,8 +53,8 @@ class SerialReader:
         self.serial_device_address = serial_device_address
 
     def start(self):
-        worker_thread = threading.Thread(target=self._thread_worker)
-        worker_thread.start()
+        self.worker_thread = threading.Thread(target=self._thread_worker)
+        self.worker_thread.start()
 
     def close(self):
         pass
