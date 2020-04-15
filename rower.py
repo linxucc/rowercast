@@ -25,6 +25,9 @@ class Rower:
     All the rower data is stored in a dict, upon each update, a new dict will be created and replace the old one,
     so for the data reader/consumers, the read-consistency is assured, all the fields will match.
 
+    Data provider should call: on_update_data()
+    Data consumer should call: get_current_frame()
+
     """
 
     def __init__(self):
@@ -88,6 +91,7 @@ class Rower:
     def get_current_frame(self) -> dict:
         # return current frame
         # even if where current frame points changes, reader still get reference to previous frame, consistency ensured.
+        print(self._current_frame)
         return self._current_frame
 
     def print_current_frame(self):

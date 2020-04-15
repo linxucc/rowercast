@@ -15,7 +15,10 @@ class BaseDataPage:
         return self.bytes
 
     def _self_check(self):
-        for i in [1, 7]:
+        # data length should be 8
+        assert len(self.bytes) == 8
+        # assert all bytes are bytes.
+        for i in [0, 7]:
             assert 0 <= self.bytes[i] <= 255
 
 
@@ -41,31 +44,36 @@ class DataPage16(BaseDataPage):
 
         # Byte 2
         # elapsed_time_increment is a accumulated field, the unit is 0.25s.
-        elapsed_time_increment = int((incoming_rower_dict['total_elapsed_time']
-                                      - DataPage16.last_total_elapsed_time) / 0.25)
-        if elapsed_time_increment > 255:
-            # if ant+ rower is started later than the actual rower, the total_elapsed_time may already be very big,
-            # we just ignore the work before, and assume now as the start.
-            # the first time a 255 (64s) will be sent, above then it will be normal.
-            # you can't avoid the bad that in this situation, you display device (watch) will not have the same
-            # total time as your head unit on the rower.
-            # so make sure the program is started before actual rowing.
-            elapsed_time_increment = 255
+        # rollover at 64s
+        elapsed_time_after_rollover = int((incoming_rower_dict['total_elapsed_time'] / 0.25) % 256)
+
+        # if elapsed_time_increment > 255:
+        #     # if ant+ rower is started later than the actual rower, the total_elapsed_time may already be very big,
+        #     # we just ignore the work before, and assume now as the start.
+        #     # the first time a 255 (64s) will be sent, above then it will be normal.
+        #     # you can't avoid the bad that in this situation, you display device (watch) will not have the same
+        #     # total time as your head unit on the rower.
+        #     # so make sure the program is started before actual rowing.
+        #     elapsed_time_increment = 255
         # update last value for next time, use tmp copy to prevent the possibility the value could change meanwhile.
-        DataPage16.last_total_elapsed_time = incoming_rower_dict['total_elapsed_time']
+        # DataPage16.last_total_elapsed_time = incoming_rower_dict['total_elapsed_time']
 
         # Byte 3
         # unit is 1 meter.
-        distance_traveled_increment = int(incoming_rower_dict['total_distance_traveled']
-                                          - DataPage16.last_distance_traveled)
-        DataPage16.last_distance_traveled = incoming_rower_dict['total_distance_traveled']
+        distance_traveled_after_rollover = int(incoming_rower_dict['total_distance_traveled'] % 256)
+        # DataPage16.last_distance_traveled = incoming_rower_dict['total_distance_traveled']
 
         # Byte 4 & 5,
         # Combined to represent instant speed.
         # tmp_current_instant_speed = self.instantaneous_speed
-        # todo: implement this. Current disable it first.
-        instant_speed_lsb = 255
-        instant_speed_msb = 255
+        # speed precision is 0.001m/s
+        rounded_spd = round(incoming_rower_dict['instantaneous_speed'], 3)
+        # speed*1000 is 0-65534
+        int_spd = int(rounded_spd * 1000)
+        assert 0 <= int_spd < 65535
+
+        instant_speed_lsb = int_spd & 0xFF
+        instant_speed_msb = (int_spd & 0xFF00) >> 8
 
         # Byte 6
         # HR, we don't use it.
@@ -80,8 +88,8 @@ class DataPage16(BaseDataPage):
 
         # set the bytes accordingly.
         self.bytes[1] = equipment_type_bit_field
-        self.bytes[2] = elapsed_time_increment
-        self.bytes[3] = distance_traveled_increment
+        self.bytes[2] = elapsed_time_after_rollover
+        self.bytes[3] = distance_traveled_after_rollover
         self.bytes[4] = instant_speed_lsb
         self.bytes[5] = instant_speed_msb
         self.bytes[6] = hr
@@ -149,7 +157,7 @@ class DataPage18(BaseDataPage):
             cal_rate_number = 65535
 
         # transfer to LSB, MSB
-        cal_rate_lsb = cal_rate_number & 0x00FF
+        cal_rate_lsb = cal_rate_number & 0xFF
         cal_rate_msb = (cal_rate_number & 0xFF00) >> 8
 
         # set the bytes
@@ -178,13 +186,15 @@ class DataPage22(BaseDataPage):
         if spm is None:
             spm = 0xFF  # 0xFF indicates spm is not available
         assert 0 <= spm <= 255
+        print(spm)
 
         # get the power
         power = incoming_rower_dict.get('instantaneous_power', None)
         if power is None:
             power = 65535  # 0xFF = invalid.
         assert 0 <= power <= 65535
-        power_lsb = power & 0x00FF
+        print(power)
+        power_lsb = power & 0xFF
         power_msb = (power & 0xFF00) >> 8
 
         # set the bits
@@ -317,7 +327,7 @@ class AntRower:
         # used to implement specific transmission pattern, will be rollovered according to the specific pattern.
         # transmission pattern is implemented in function _get_next_page(), for detail check there.
         self.message_count = 1
-        self.transmission_pattern = 'a'  # 1=a, 2=b, 3=c, 4=d, see Ant+ FE device profile page 24 of 74.
+        self.transmission_pattern = 'b'  # 1=a, 2=b, 3=c, 4=d, see Ant+ FE device profile page 24 of 74.
         self.transmission_pattern_func_dict = {
             'a': self._get_next_page_transmission_pattern_a,
             'b': self._get_next_page_transmission_pattern_b,
@@ -330,7 +340,16 @@ class AntRower:
         self.page_80 = DataPage80()
         self.page_81 = DataPage81()
 
-    def on_tx_event(self):
+        # thread handler
+        self.ant_thread = None
+
+    def on_tx_event(self, data):
+        """Callback function for Ant+ (openant)
+
+        Upon each TX time slot, a TX event is generated, and this function is called.
+        When called, it should update the rower's data,
+
+        """
         # data = array.array('B', [1, 255, 133, 128, 8, 0, 128, 0])
         page_to_send = self._get_next_page()
         data_payload = page_to_send.to_payload()  # get new data payload to sent at this TX event.
@@ -371,8 +390,8 @@ class AntRower:
 
     def start(self):
         """Start the broadcast event loop, from now on, each TX tick, send new broadcast"""
-        ant_thread = threading.Thread(target=self._open_and_start())
-        ant_thread.start()
+        self.ant_thread = threading.Thread(target=self._open_and_start)
+        self.ant_thread.start()
         # this ensures the function is returned immediately to main thread, not blocking other lines in caller.
 
     def close(self):
@@ -404,6 +423,9 @@ class AntRower:
         # roll-over to 1 if msg count reaches 132
         if self.message_count == 132:
             self.message_count = 1
+            assert self.message_count <= 132
+        else:
+            self.message_count += 1
 
         return next_page
 

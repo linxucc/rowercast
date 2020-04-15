@@ -39,12 +39,19 @@ self.total_elapsed_time = incoming_data.get('total_elapsed_time', -1)
 
 import threading
 import serial
+from abc import abstractmethod
 
 from rower import Rower
 
 
-class SerialReader:
+class BaseSerialReader:
+    """Base class for serial readers for different rowers
 
+    Implement the universal handling of the serial I/O, and task threading things.
+
+    For a specific rower, extend this class and implement the _parse() method.
+
+    """
     def __init__(self, outbound_rower, serial_device_address):
         # When got new data frame, update which rower.
         assert isinstance(outbound_rower, Rower)
@@ -64,12 +71,10 @@ class SerialReader:
         """This method will run as a thread, to continuously read serial port and update rower object"""
         with serial.Serial(self.serial_device_address, timeout=1) as ser:
             # Connect,
-            ser.write(b'C\n')
-            # Reset
-            ser.write(b'R\n')
+            self._connect(ser)
             # continuously read the data
             while True:
-                ser_bytes = ser.readline()
+                ser_bytes = self._read_message(ser)
                 if ser_bytes != '':
                     # got something
                     print('Got something from serial')
@@ -84,8 +89,53 @@ class SerialReader:
                     # EOF or timeout
                     print('No data, timeout.')
 
-    @staticmethod
-    def _parse(ser_bytes):
+
+    def _send(self, dict_to_send):
+        assert isinstance(dict_to_send, dict)
+        self.receiver.on_update_data(dict_to_send)
+
+    @abstractmethod
+    def _connect(self, ser):
+        """the connect command to send to establish a link"""
+
+    @abstractmethod
+    def _read_message(self, ser):
+        """send the read command (if any) and wait for the message
+
+        """
+        return ser.readline()
+
+    @abstractmethod
+    def _parse(self, ser_bytes):
+        """Parse the bytes read from the serial port.
+
+        return a dict if have a valid data, return None if no valid data.
+
+        return dict field definition:
+            'total_elapsed_time': # in seconds, integer, mandatory
+            'total_distance_traveled': # in meter, integer, mandatory
+            'instantaneous_speed': # in meter/second, calculate from 500m pace, float, mandatory
+            'strokes_per_minute': # spm, stroke/minute, int
+            'instantaneous_power': # power, in watts, int
+            'calories_burn_rate':  # caloric burn rate, in kCal/hour, int
+            'resistance_level': # resistance level, in percentage, float
+
+
+        :param ser_bytes: bytes message from serial port. b'' string is expected.
+        :return: dict of rower data.
+        """
+        pass
+
+class FDFReader(BaseSerialReader):
+    """Serial reader for FDF rower"""
+    def _connect(self, ser):
+        # Connect,
+        ser.write(b'C\n')
+        # Reset
+        ser.write(b'R\n')
+
+
+    def _parse(self, ser_bytes):
         if len(ser_bytes) == 31:
             # this is the rower's valid frame data, decode and return a dict.
             # get the raw data.
@@ -144,6 +194,4 @@ class SerialReader:
             # todo: handle the commands here, result with leading characters for command, is the result.
             return None
 
-    def _send(self, dict_to_send):
-        assert isinstance(dict_to_send, dict)
-        self.receiver.on_update_data(dict_to_send)
+
