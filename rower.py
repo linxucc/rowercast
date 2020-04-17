@@ -30,6 +30,8 @@ class Rower:
 
     """
 
+    # todo: support status report
+
     def __init__(self):
         # fields definitions, keys that are not recognized will be rejected.
         self.all_valid_keys = [

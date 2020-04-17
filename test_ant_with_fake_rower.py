@@ -2,7 +2,8 @@
 
 from rower import Rower
 from ant_rower import AntRower
-from fake_rower import FakeRower
+from serial_reader import FakeRower
+from config import ANT_CONFIG
 
 SERIAL_ADDRESS = ''
 
@@ -14,7 +15,7 @@ def main():
     # serial data reader.
     serial_reader = FakeRower(my_rower)
     # Ant+ FE rower broadcaster.
-    ant_broadcaster = AntRower(my_rower)
+    ant_broadcaster = AntRower(my_rower, ANT_CONFIG)
 
     # start reading, start broadcasting.
     try:

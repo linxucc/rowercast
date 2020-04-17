@@ -44,8 +44,8 @@ class DataPageTestGood(unittest.TestCase):
         with self.assertRaises(AssertionError):
             base_page._self_check()
         # data value not in range
-        base_page.bytes = array.array('B', [12, 256, 0, 0, 0, 0, 0, 0])
         with self.assertRaises([AssertionError, OverflowError]):
+            base_page.bytes = array.array('B', [12, 256, 0, 0, 0, 0, 0, 0])
             base_page._self_check()
 
     def test_page_16(self):

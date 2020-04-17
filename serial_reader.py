@@ -39,6 +39,7 @@ self.total_elapsed_time = incoming_data.get('total_elapsed_time', -1)
 
 import threading
 import serial
+import time
 from abc import abstractmethod
 
 from rower import Rower
@@ -52,12 +53,14 @@ class BaseSerialReader:
     For a specific rower, extend this class and implement the _parse() method.
 
     """
+
     def __init__(self, outbound_rower, serial_device_address):
         # When got new data frame, update which rower.
         assert isinstance(outbound_rower, Rower)
         self.receiver = outbound_rower
         # Which TTY device are you going to read.   todo: auto detect, instead of hard code.
         self.serial_device_address = serial_device_address
+        self.worker_thread = None
 
     def start(self):
         self.worker_thread = threading.Thread(target=self._thread_worker)
@@ -89,7 +92,6 @@ class BaseSerialReader:
                     # EOF or timeout
                     print('No data, timeout.')
 
-
     def _send(self, dict_to_send):
         assert isinstance(dict_to_send, dict)
         self.receiver.on_update_data(dict_to_send)
@@ -97,13 +99,12 @@ class BaseSerialReader:
     @abstractmethod
     def _connect(self, ser):
         """the connect command to send to establish a link"""
+        pass
 
     @abstractmethod
     def _read_message(self, ser):
-        """send the read command (if any) and wait for the message
-
-        """
-        return ser.readline()
+        """send the read command (if any) and wait for the message"""
+        pass
 
     @abstractmethod
     def _parse(self, ser_bytes):
@@ -126,14 +127,79 @@ class BaseSerialReader:
         """
         pass
 
+
+class FakeRower(BaseSerialReader):
+    """Fake Rower class
+
+    Simulate a serial reader, Update the data once a second, send new data to Rower object.
+    This class should be substitutable with a actual serial Reader.
+
+    """
+
+    def __init__(self, out_rower):
+        super(FakeRower, self).__init__(outbound_rower=out_rower, serial_device_address='')
+        self.spd = 2.5
+        self.time = 0
+        self.distance = 0
+        self.power = 196
+        self.spm = 31
+        self.cal_rate = 159
+        self.resistance = 0.5
+
+    def _connect(self, ser):
+        pass
+
+    def _read_message(self, ser):
+        pass
+
+    def _parse(self, ser_bytes):
+        pass
+
+    # fake rower class does't read actual data, it fabricate data instead.
+    # override the original thread_worker method.
+    def _thread_worker(self):
+        while True:
+            result_dict = self.generate_fake_data()
+            print(result_dict)
+            self._send(result_dict)
+            time.sleep(1)
+
+    def generate_fake_data(self):
+        new_dict = {
+            # in second
+            'total_elapsed_time': self.time,
+            # in meter
+            'total_distance_traveled': self.distance,
+            # in meter/second, calculate from 500m pace, float
+            'instantaneous_speed': self.spd,
+            # spm, stroke/minute, int
+            'strokes_per_minute': self.spm,
+            # power, in watts, int
+            'instantaneous_power': self.power,
+            # caloric burn rate, in kCal/hour, int
+            'calories_burn_rate': self.cal_rate,
+            # resistance level, in percentage, float
+            # this rower have 4 levels. 1/4 to 4/4
+            'resistance_level': self.resistance
+        }
+
+        self.time += 1
+        self.distance = int(self.distance + self.spd)
+
+        return new_dict
+
+
 class FDFReader(BaseSerialReader):
     """Serial reader for FDF rower"""
+
     def _connect(self, ser):
         # Connect,
         ser.write(b'C\n')
         # Reset
         ser.write(b'R\n')
 
+    def _read_message(self, ser):
+        return ser.readline()
 
     def _parse(self, ser_bytes):
         if len(ser_bytes) == 31:
@@ -184,7 +250,7 @@ class FDFReader(BaseSerialReader):
                 'calories_burn_rate': cal_per_hour,
                 # resistance level, in percentage, float
                 # this rower have 4 levels. 1/4 to 4/4
-                'resistance_level': level/4
+                'resistance_level': level / 4
             }
 
             return new_dict
@@ -193,5 +259,3 @@ class FDFReader(BaseSerialReader):
             # unexpected, not frame data.
             # todo: handle the commands here, result with leading characters for command, is the result.
             return None
-
-

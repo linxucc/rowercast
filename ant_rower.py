@@ -151,14 +151,14 @@ class DataPage18(BaseDataPage):
         cal_per_hour = incoming_rower_dict.get('calories_burn_rate', None)
         if cal_per_hour is not None:
             # ant+ FE use unit of 0.1kCal/hr
-            cal_rate_number = cal_per_hour / 0.1
+            cal_rate_number = cal_per_hour * 10
             assert 0 <= cal_rate_number <= 65534
         else:
             cal_rate_number = 65535
 
         # transfer to LSB, MSB
-        cal_rate_lsb = cal_rate_number & 0xFF
-        cal_rate_msb = (cal_rate_number & 0xFF00) >> 8
+        cal_rate_lsb = int(cal_rate_number) & 0xFF
+        cal_rate_msb = (int(cal_rate_number) & 0xFF00) >> 8
 
         # set the bytes
         self.bytes[0] = 18
@@ -303,7 +303,7 @@ class AntRower:
 
     """
 
-    def __init__(self, source: Rower):
+    def __init__(self, source: Rower, config: dict):
         # only take one parameter, source.
         # source is a object represents a rower, best to be an instance of Rower,
         # it should have a method of get_current_frame(), which returns a K-V dict, containing the rower info.
@@ -316,7 +316,8 @@ class AntRower:
         self.RF_frequency = 57  # Ant+ frequency.
         self.transmission_type = 5  # MSN = 0x0, LSN = 0x5, detail see ant+ device profile document.
         self.device_type = 17  # Ant+ FE
-        self.device_number = 33333  # Device number could be whatever between 1~65535. Change if you need.
+        # if ant device ID not specified, use 1 as default.
+        self.device_number = config.get('ANT_DEVICE_ID', 1)  # Device number could be whatever between 1~65535. Change if you need.
         self.channel_period = 8192  # 4hz, as device profile requires.
 
         # openant radio objects.
@@ -327,7 +328,8 @@ class AntRower:
         # used to implement specific transmission pattern, will be rollovered according to the specific pattern.
         # transmission pattern is implemented in function _get_next_page(), for detail check there.
         self.message_count = 1
-        self.transmission_pattern = 'b'  # 1=a, 2=b, 3=c, 4=d, see Ant+ FE device profile page 24 of 74.
+        # if transmission type does not specifed, use type b as default.
+        self.transmission_pattern = config.get('TRANSMISSION_TYPE', 'b')  # 1=a, 2=b, 3=c, 4=d, see Ant+ FE device profile page 24 of 74.
         self.transmission_pattern_func_dict = {
             'a': self._get_next_page_transmission_pattern_a,
             'b': self._get_next_page_transmission_pattern_b,

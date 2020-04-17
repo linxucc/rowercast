@@ -12,9 +12,8 @@ send it as a broadcast.
 
 from rower import Rower
 from ant_rower import AntRower
-from serial_reader import SerialReader
-
-SERIAL_ADDRESS = ''
+from serial_reader import FDFReader
+from config import SERIAL_ADDRESS, ANT_CONFIG
 
 
 def main():
@@ -22,9 +21,9 @@ def main():
     # shared data object of a rower.
     my_rower = Rower()
     # serial data reader.
-    serial_reader = SerialReader(my_rower, SERIAL_ADDRESS)
+    serial_reader = FDFReader(my_rower, SERIAL_ADDRESS)
     # Ant+ FE rower broadcaster.
-    ant_broadcaster = AntRower(my_rower)
+    ant_broadcaster = AntRower(my_rower, ANT_CONFIG)
 
     # start reading, start broadcasting.
     try:
